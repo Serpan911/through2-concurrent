@@ -1,9 +1,56 @@
 var through2Concurrent = require('./through2-concurrent');
 var expect = require('expect.js');
 var _ = require('underscore');
+var fs = require('fs');
+
+var Readable = require('stream').Readable,
+  util = require('util');
+
+function ArrayStream(array) {
+  Readable.call(this, {objectMode: true});
+
+  this._array = array;
+  this._index = 0;
+  this._count = array.length;
+}
+
+util.inherits(ArrayStream, Readable);
+
+ArrayStream.prototype._read = function() {
+  var index = this._index++;
+  if (index < this._count) {
+    this.push(this._array[index]);
+  } else {
+    this.push(null);
+  }
+};
+
+describe('got "finish" event before all pending jobs done', function () {
+  var processedCount = 0, objectCount = 20;
+
+  it('should processed count equal data count', function (done) {
+    var firstStream = new ArrayStream(_(objectCount).times(function(i) {
+      return {i: i};
+    }));
+
+    var secondStream = through2Concurrent.obj(
+      {maxConcurrency: 5},
+      function (chunk, enc, callback) {
+        fs.readFile('through2-concurrent.js', function() {
+          processedCount++;
+          callback()
+        })
+      }
+    ).on('finish', function() {
+      expect(objectCount).be(processedCount);
+      done();
+    });
+
+    firstStream.pipe(secondStream);
+  });
+});
 
 var oldNextTick = process.nextTick;
-
 
 describe('through2-concurrent', function () {
   var nextTickScheduled, collectingThrough, transformCalls, flushCalls;
